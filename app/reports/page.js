@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Sidebar from "../components/Sidebar";
 import MobileHeader from "../components/MobileHeader";
 import jsPDF from "jspdf";
@@ -56,7 +56,7 @@ export default function ReportsPage() {
   const toggleSidebar = () => setSidebarOpen((prev) => !prev);
 
   // 🔹 Fetch Reports
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(`/api/reports?type=${reportType}`);
@@ -68,11 +68,14 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [reportType]);
 
+  // ✅ useEffect now depends safely on fetchReports
   useEffect(() => {
     fetchReports();
-  }, [reportType]);
+  }, [fetchReports]);
+
+
 
   // 🔹 Handle Input
   const handleChange = (e) => {

@@ -9,45 +9,47 @@ export default function AuthWrapper({ children }) {
   const [authChecked, setAuthChecked] = useState(false);
   const unprotectedRoutes = ["/login", "/signup"];
 
-  useEffect(() => {
-    const verifyAuth = async () => {
-      try {
-        // Unprotected routes → skip
-        if (unprotectedRoutes.includes(pathname)) {
-          setAuthChecked(true);
-          return;
-        }
-
-        const token = localStorage.getItem("token");
-        if (!token) {
-          router.push("/login");
-          return;
-        }
-
-        const res = await fetch("/api/profile", {
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: "include",
-        });
-
-        const data = await res.json();
-
-        console.log(data);
-        
-
-        if (!res.ok || !data.success) {
-          localStorage.removeItem("token");
-          router.push("/login");
-        } else {
-          setAuthChecked(true);
-        }
-      } catch (error) {
-        console.error("Auth check failed:", error);
-        router.push("/login");
+useEffect(() => {
+  const verifyAuth = async () => {
+    try {
+      // Unprotected routes → skip
+      if (unprotectedRoutes.includes(pathname)) {
+        setAuthChecked(true);
+        return;
       }
-    };
 
-    verifyAuth();
-  }, [pathname, router]);
+      const token = localStorage.getItem("token");
+      if (!token) {
+        router.push("/login");
+        return;
+      }
+
+      const res = await fetch("/api/profile", {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      });
+
+      const data = await res.json();
+
+      console.log(data);
+
+      if (!res.ok || !data.success) {
+        localStorage.removeItem("token");
+        router.push("/login");
+      } else {
+        setAuthChecked(true);
+      }
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      router.push("/login");
+    }
+  };
+
+  verifyAuth();
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [pathname, router]);
+
 
   if (!authChecked) {
     return (
