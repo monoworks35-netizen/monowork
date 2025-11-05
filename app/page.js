@@ -53,18 +53,19 @@ export default function Home() {
     
     // ⚡ New: Show Pending Dues Notifications
     if (data.pendingDues && data.pendingDues.length > 0) {
-      data.pendingDues.forEach((due) => {
-        toast.warning(
-          `⚠️ Payment Reminder`,
-          {
-            description: `${due.name} ka due amount Rs. ${due.amount} tha (Date: ${new Date(
-              due.dueDate
-            ).toLocaleDateString()})`,
-            duration: 8000,
-          }
-        );
-      });
-    }
+  data.pendingDues.forEach((due) => {
+    toast.warning(
+      `⚠️ Payment Reminder`,
+      {
+        description: `${due.name} had a due amount of Rs. ${due.amount} (Due Date: ${new Date(
+          due.dueDate
+        ).toLocaleDateString()})`,
+        duration: 8000,
+      }
+    );
+  });
+}
+
 
   } catch (err) {
     console.error(err);
