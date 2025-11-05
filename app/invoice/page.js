@@ -1,32 +1,44 @@
 "use client";
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Sidebar from "../components/Sidebar";
 import MobileHeader from "../components/MobileHeader";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Plus, Trash2, Download } from "lucide-react";
 import { toast } from "sonner";
+import { useCompany } from "../context/CompanyContext";
 
 export default function InvoicePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+  const [products, setProducts] = useState([]);
+const [searchSuggestions, setSearchSuggestions] = useState([]);
+const [showSuggestions, setShowSuggestions] = useState(false);
+const [customerList, setCustomerList] = useState([]);
+const [customerSuggestions, setCustomerSuggestions] = useState([]);
+const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
+const { company, loading } = useCompany();
+
+
 
   const [logo, setLogo] = useState(null);
   const [amountPaid, setAmountPaid] = useState(0);
   const fileRef = useRef(null);
 
-  const [form, setForm] = useState({
-    from: "",
-    billTo: "",
-    shipTo: "",
-    invoiceNo: `INV-${Date.now().toString().slice(-6)}`,
-    date: new Date().toISOString().slice(0, 10),
-    paymentTerms: "",
-    dueDate: "",
-    poNumber: "",
-    notes: "",
-    terms: "",
-  });
+const [form, setForm] = useState({
+  from: "",
+  billTo: "",
+  shipTo: "",
+  invoiceNo: `INV-${Date.now().toString().slice(-6)}`,
+  date: new Date().toISOString().slice(0, 10),
+  paymentTerms: "",
+  dueDate: "",
+  poNumber: "",
+  notes: "",
+  terms: "",
+  customerData: {}, // ✅ added for full customer info
+});
+
 
   const [items, setItems] = useState([
     { id: Date.now(), description: "", qty: 1, rate: 0, amount: 0 },
@@ -62,36 +74,166 @@ export default function InvoicePage() {
     );
   }
 
-  const subtotal = items.reduce((s, i) => s + Number(i.amount || 0), 0);
-  const taxAmount = +(subtotal * (Number(taxPercent) || 0) / 100).toFixed(2);
-  const discountAmount = +(subtotal * (Number(discountPercent) || 0) / 100).toFixed(2);
-  const total = +(subtotal + taxAmount - discountAmount + Number(shipping || 0)).toFixed(2);
+  const [subtotal, setSubtotal] = useState(0);
+const [taxAmount, setTaxAmount] = useState(0);
+const [discountAmount, setDiscountAmount] = useState(0);
+const [total, setTotal] = useState(0);
+const [balanceDue, setBalanceDue] = useState(0);
+
+useEffect(() => {
+  const sub = items.reduce((s, i) => s + Number(i.amount || 0), 0);
+  const taxAmt = +(sub * (Number(taxPercent) || 0) / 100).toFixed(2);
+  const discountAmt = +(sub * (Number(discountPercent) || 0) / 100).toFixed(2);
+  const totalAmt = +(sub + taxAmt - discountAmt + Number(shipping || 0)).toFixed(2);
+  const due = Math.max(totalAmt - Number(amountPaid || 0), 0);
+
+  setSubtotal(sub);
+  setTaxAmount(taxAmt);
+  setDiscountAmount(discountAmt);
+  setTotal(totalAmt);
+  setBalanceDue(Number(due.toFixed(2)));
+
+  // 🔍 Debug logs (optional)
+  console.log("✅ Subtotal:", sub, "| Total:", totalAmt, "| Paid:", amountPaid, "| Due:", due);
+}, [items, taxPercent, discountPercent, shipping, amountPaid]);
+
+
+
+
+
+
+
+useEffect(() => {
+  const fetchProducts = async () => {
+    try {
+      const res = await fetch("/api/inventory"); // ✅ Fetch once
+      const data = await res.json();
+      setProducts(data); // Store all products in state
+    } catch (error) {
+      console.error("Error fetching products:", error);
+    }
+  };
+
+  fetchProducts();
+}, []); // ✅ only run once
+
+const handleCustomerInput = (value) => {
+  updateForm("billTo", value);
+
+  if (value.trim().length > 0) {
+    const matches = customerList.filter((c) =>
+      c.name.toLowerCase().includes(value.toLowerCase())
+    );
+    setCustomerSuggestions(matches);
+    setShowCustomerSuggestions(true);
+  } else {
+    setCustomerSuggestions([]);
+    setShowCustomerSuggestions(false);
+  }
+};
+
+useEffect(() => {
+  const fetchCustomers = async () => {
+    try {
+      const res = await fetch("/api/customers");
+      const data = await res.json();
+      setCustomerList(data);
+    } catch (err) {
+      console.error("Error fetching customers:", err);
+      toast.error("Failed to load customers!");
+    }
+  };
+  fetchCustomers();
+}, []);
+
+
+const handleSelectCustomer = (customer) => {
+  console.log(customer);
+  
+  updateForm("billTo", customer.name);
+  updateForm("poNumber", customer.contact || "");
+  console.log('ponumber', customer.phone);
+  
+  updateForm("customerData", {
+    id: customer._id,
+    name: customer.name,
+    phone: customer.contact,
+    email: customer.email || "",
+    address: customer.address || "",
+    city: customer.city || "",
+  });
+  setShowCustomerSuggestions(false);
+};
+
+
+
+
+
+
+
+const handleDescriptionInput = (id, value) => {
+  // Update description field in items
+  updateItem(id, "description", value);
+
+  if (value.trim().length > 0) {
+    // Filter products from already fetched data
+    const matches = products.filter((p) =>
+      p.name.toLowerCase().includes(value.toLowerCase())
+    );
+
+    // 🔥 Suggestion state per item ID ke hisab se manage kar rahe hain
+    setSearchSuggestions((prev) => ({ ...prev, [id]: matches }));
+    setShowSuggestions((prev) => ({ ...prev, [id]: true }));
+  } else {
+    setSearchSuggestions((prev) => ({ ...prev, [id]: [] }));
+    setShowSuggestions((prev) => ({ ...prev, [id]: false }));
+  }
+};
+
+// ✅ When user selects a product from suggestion
+const handleSelectSuggestion = (id, product) => {
+  setItems((prev) =>
+    prev.map((it) =>
+      it.id === id
+        ? {
+            ...it,
+            description: product.name,
+            productId: product._id, // ✅ Add this line
+            qty: 1,
+            rate: product.purchasePrice || 0,
+            amount: product.purchasePrice || 0,
+          }
+        : it
+    )
+  );
+
+  setShowSuggestions((prev) => ({ ...prev, [id]: false }));
+};
 
 
 
 async function handleDownloadPDF() {
   let processingToast;
-
   try {
     processingToast = toast.loading("🧾 Generating invoice, please wait...");
 
-    // Prepare invoice data
+    // ===== Prepare Invoice Data =====
     const invoiceData = {
       ...form,
       items,
-      subtotal,
-      taxPercent,
-      taxAmount,
-      discountPercent,
-      discountAmount,
-      shipping,
-      total,
-      amountPaid,
-      balanceDue: Math.max(total - Number(amountPaid || 0), 0),
+      subtotal: Number(subtotal.toFixed(2)),
+      taxPercent: Number(taxPercent) || 0,
+      taxAmount: Number(taxAmount.toFixed(2)),
+      discountPercent: Number(discountPercent) || 0,
+      discountAmount: Number(discountAmount.toFixed(2)),
+      shipping: Number(shipping) || 0,
+      total: Number(total.toFixed(2)),
+      amountPaid: Number(amountPaid) || 0,
+      balanceDue: Number(balanceDue.toFixed(2)),
       logo,
+      customerData: form.customerData || {},
     };
 
-    // Send to backend
     const res = await fetch("/api/invoices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -101,58 +243,85 @@ async function handleDownloadPDF() {
     if (!res.ok) throw new Error("Failed to save invoice");
 
     const savedInvoice = await res.json();
-    const invoiceCode = savedInvoice.code || savedInvoice.invoiceNo;
+    const invoiceCode = savedInvoice.code || `INV-${Date.now()}`;
 
-    // ===== PDF Generation =====
+    // ===== PDF Setup =====
     const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const darkGreen = [0, 63, 32];
-    const lightGray = [120, 120, 120];
+    const gray = [90, 90, 90];
+    const darkGray = [50, 50, 50];
+    const lightGray = [230, 230, 230];
+    const green = [0, 100, 0];
     const formatNum = (num) =>
       `Rs. ${Number(num || 0).toLocaleString("en-PK", { minimumFractionDigits: 2 })}`;
 
+    const pageWidth = doc.internal.pageSize.getWidth();
+
     // ===== HEADER =====
-    if (logo) {
-      try { doc.addImage(logo, "JPEG", 40, 25, 100, 50); }
-      catch { doc.addImage(logo, 40, 25, 100, 50); }
-    } else {
-      doc.setFontSize(16);
-      doc.setTextColor(...darkGreen);
-      doc.text("GreenLeaf Enterprises", 40, 55);
+    let y = 40;
+    if (company.logo) {
+      try {
+        const imgBlob = await fetch(company.logo).then((r) => r.blob());
+        const imgBase64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(imgBlob);
+        });
+        doc.addImage(imgBase64, "JPEG", 50, y, 70, 70);
+      } catch (e) {
+        doc.setFontSize(18);
+        doc.setTextColor(...green);
+        doc.text(company.name || "Company Name", 50, y + 30);
+      }
     }
 
+    doc.setFontSize(11);
+    doc.setTextColor(...darkGray);
+    doc.text(company.name || "-", pageWidth - 200, y + 10);
+    doc.text(company.address || "-", pageWidth - 200, y + 25);
+    doc.text(company.phone || "-", pageWidth - 200, y + 40);
+
+    // line separator
+    doc.setDrawColor(...lightGray);
+    doc.line(50, 130, pageWidth - 50, 130);
+
+    // ===== INVOICE TITLE =====
     doc.setFontSize(22);
-    doc.setTextColor(...darkGreen);
-    doc.text(`INVOICE`, 380, 55);
-    doc.setFontSize(12);
-    doc.text(`Code: ${invoiceCode}`, 380, 70);
+    doc.setTextColor(...green);
+    doc.text("INVOICE", 50, 160);
 
-    // ===== BILLING & SHIPPING INFO =====
+    doc.setFontSize(11);
+    doc.setTextColor(...gray);
+    doc.text(`Code: ${invoiceCode}`, 50, 178);
+
+    // ===== BILL TO & SHIP TO =====
     doc.setFontSize(10);
-    doc.setTextColor(...lightGray);
-    doc.text("Bill To:", 40, 110);
-    doc.setTextColor(0);
-    doc.text(doc.splitTextToSize(form.billTo || "-", 220), 40, 125);
+    doc.setTextColor(...gray);
+    doc.text("Bill To:", 50, 210);
+    doc.setTextColor(...darkGray);
+    doc.text(doc.splitTextToSize(form.billTo || "-", 200), 50, 225);
 
-    doc.setTextColor(...lightGray);
-    doc.text("Ship To:", 300, 110);
-    doc.setTextColor(0);
-    doc.text(doc.splitTextToSize(form.shipTo || "-", 220), 300, 125);
+    doc.setTextColor(...gray);
+    doc.text("Ship To:", 300, 210);
+    doc.setTextColor(...darkGray);
+    doc.text(doc.splitTextToSize(form.shipTo || "-", 200), 300, 225);
 
-    // ===== INVOICE DETAILS (Right side) =====
-    const rightX = 430;
-    let y = 110;
+    // ===== DETAILS (Right side) =====
+    let detailY = 210;
+    const rightX = pageWidth - 200;
     const details = [
       ["Date:", form.date],
       ["Payment Terms:", form.paymentTerms || "-"],
       ["Due Date:", form.dueDate || "-"],
       ["PO Number:", form.poNumber || "-"],
     ];
-    details.forEach(([label, val]) => {
-      y += 15;
-      doc.setTextColor(80);
-      doc.text(label, rightX, y);
-      doc.setTextColor(0);
-      doc.text(val || "-", rightX + 100, y, { align: "right" });
+
+    doc.setFontSize(10);
+    details.forEach(([label, value]) => {
+      doc.setTextColor(...gray);
+      doc.text(label, rightX, detailY);
+      doc.setTextColor(...darkGray);
+      doc.text(value || "-", rightX + 90, detailY);
+      detailY += 16;
     });
 
     // ===== ITEMS TABLE =====
@@ -164,94 +333,80 @@ async function handleDownloadPDF() {
     ]);
 
     autoTable(doc, {
-      startY: 160,
-      head: [["Item / Description", "Quantity", "Rate", "Amount"]],
+      startY: 270,
+      head: [["Item / Description", "Qty", "Rate", "Amount"]],
       body: tableBody,
-      styles: { fontSize: 10, halign: "left", valign: "middle" },
-      headStyles: { fillColor: darkGreen, textColor: 255, halign: "center" },
-      columnStyles: { 1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" } },
-      margin: { left: 40, right: 40 },
+      theme: "grid",
+      headStyles: {
+        fillColor: gray,
+        textColor: 255,
+        halign: "center",
+        fontStyle: "bold",
+      },
+      bodyStyles: { textColor: darkGray, halign: "left", valign: "middle" },
+      columnStyles: {
+        1: { halign: "center" },
+        2: { halign: "right" },
+        3: { halign: "right" },
+      },
+      margin: { left: 50, right: 50 },
+      styles: { fontSize: 10, lineColor: lightGray },
     });
 
-    // ===== SUMMARY SECTION =====
-    const finalY = doc.lastAutoTable.finalY + 20;
-    const summaryX = 40;
-    const summaryWidth = 515;
-    const rowHeight = 20;
+    // ===== SUMMARY =====
+    const finalY = doc.lastAutoTable.finalY + 30;
+    doc.setFontSize(11);
+    const rows = [
+      ["Subtotal:", formatNum(subtotal)],
+      [`Tax (${taxPercent}%):`, formatNum(taxAmount)],
+      [`Discount (${discountPercent}%):`, `- ${formatNum(discountAmount)}`],
+      ["Shipping:", formatNum(shipping)],
+      ["Total:", formatNum(total)],
+      ["Amount Paid:", formatNum(amountPaid)],
+      ["Balance Due:", formatNum(balanceDue)],
+    ];
 
-    doc.setFillColor(245, 245, 245);
-    doc.rect(summaryX, finalY, summaryWidth, 140, "F");
+    rows.forEach(([label, val], i) => {
+  const y = finalY + i * 18;
 
-    let ty = finalY + 25;
-    const drawLine = (label, value, color = 0, bold = false, large = false) => {
-      doc.setFont(undefined, bold ? "bold" : "normal");
-      if (Array.isArray(color)) doc.setTextColor(...color);
-      else doc.setTextColor(color);
-      doc.setFontSize(large ? 13 : 11);
-      doc.text(label, summaryX + 20, ty);
-      doc.text(value, summaryX + summaryWidth - 20, ty, { align: "right" });
-      ty += rowHeight;
-    };
+  // Left text (labels)
+  doc.setTextColor(...gray);
+  doc.text(label, pageWidth - 220, y);
 
-    drawLine("Subtotal:", formatNum(subtotal));
-    drawLine(`Tax (${taxPercent}%):`, formatNum(taxAmount));
-    drawLine(`Discount (${discountPercent}%):`, `- ${formatNum(discountAmount)}`);
-    drawLine("Shipping:", formatNum(shipping));
-    drawLine("Total:", formatNum(total), [0, 128, 0], true, true);
-    drawLine("Amount Paid:", formatNum(amountPaid));
-    drawLine("Balance Due:", formatNum(Math.max(total - Number(amountPaid || 0), 0)), [200, 0, 0], true, true);
+  // Right text (values)
+  const color = i >= 4 ? green : darkGray; // choose color
+  doc.setTextColor(color[0], color[1], color[2]); // ✅ use RGB directly
+  doc.text(val, pageWidth - 60, y, { align: "right" });
+});
 
-    // ===== NOTES & TERMS =====
-    let noteY = finalY + 170;
-    doc.setDrawColor(200);
-    doc.line(40, noteY - 10, 555, noteY - 10);
+
+    // ===== NOTES =====
+    let noteY = finalY + rows.length * 18 + 30;
+    doc.setDrawColor(...lightGray);
+    doc.line(50, noteY - 10, pageWidth - 50, noteY - 10);
 
     doc.setFontSize(10);
-    doc.setTextColor(80);
-    doc.setFont(undefined, "bold");
-    doc.text("Notes:", 40, noteY);
-    doc.setFont(undefined, "normal");
-    doc.text(doc.splitTextToSize(form.notes || "-", 250), 40, noteY + 15);
+    doc.setTextColor(...gray);
+    doc.text("Notes:", 50, noteY);
+    doc.setTextColor(...darkGray);
+    doc.text(doc.splitTextToSize(form.notes || "-", 250), 50, noteY + 15);
 
-    noteY += 60;
-    doc.setFont(undefined, "bold");
-    doc.text("Terms:", 40, noteY);
-    doc.setFont(undefined, "normal");
-    doc.text(doc.splitTextToSize(form.terms || "-", 250), 40, noteY + 15);
+    doc.text("Terms:", 330, noteY);
+    doc.text(doc.splitTextToSize(form.terms || "-", 250), 330, noteY + 15);
 
     // ===== FOOTER =====
-    doc.setDrawColor(210);
-    doc.line(40, 810, 555, 810);
+    doc.setDrawColor(...lightGray);
+    doc.line(50, 810, pageWidth - 50, 810);
     doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text("Thank you for your business!", 230, 825);
+    doc.setTextColor(...gray);
+    doc.text("Thank you for your business!", pageWidth / 2, 825, { align: "center" });
 
+    // ===== SAVE PDF =====
     doc.save(`Invoice_${invoiceCode}.pdf`);
-
-    // ===== Success & Reset =====
-    toast.success(`✅ Invoice ${invoiceCode} generated & saved successfully!`, { id: processingToast });
-    setForm({
-      from: "",
-      billTo: "",
-      shipTo: "",
-      invoiceNo: `INV-${Date.now().toString().slice(-6)}`,
-      date: new Date().toISOString().slice(0, 10),
-      paymentTerms: "",
-      dueDate: "",
-      poNumber: "",
-      notes: "",
-      terms: "",
-    });
-    setItems([{ id: Date.now(), description: "", qty: 1, rate: 0, amount: 0 }]);
-    setAmountPaid(0);
-    setTaxPercent(0);
-    setDiscountPercent(0);
-    setShipping(0);
-    setLogo(null);
-    if (fileRef.current) fileRef.current.value = null;
+    toast.success(`✅ Invoice ${invoiceCode} generated successfully!`, { id: processingToast });
 
   } catch (err) {
-    console.error(err);
+    console.error("PDF generation error:", err);
     toast.error("❌ Error generating invoice", { id: processingToast });
   }
 }
@@ -260,10 +415,7 @@ async function handleDownloadPDF() {
 
 
 
-
-
-
-  const balanceDue = Math.max(total - Number(amountPaid || 0), 0).toFixed(2);
+ 
 
   return (
     <main className="flex bg-gray-50 min-h-screen">
@@ -278,15 +430,39 @@ async function handleDownloadPDF() {
         <div className="max-w-full mx-auto bg-white rounded-2xl shadow-md p-8 border border-gray-100">
           {/* Header */}
           <div className="flex justify-between items-start mb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-[#003f20] mb-2">
-                GreenLeaf Enterprises
-              </h1>
-              <p className="text-sm text-gray-600 leading-tight">
-                123 Business Street, Lahore, Pakistan <br />
-                +92 300 1234567
-              </p>
-            </div>
+            {company ? (
+  <div className="flex items-center gap-4 border-b pb-4">
+    {/* 🔹 Company Logo */}
+    {company.logo ? (
+      <img
+        src={company.logo}
+        alt={company.name}
+        className="h-14 w-14 rounded-md object-cover shadow-sm border"
+      />
+    ) : (
+      <div className="h-14 w-14 rounded-md bg-gray-100 flex items-center justify-center text-gray-400 text-xs border">
+        Logo
+      </div>
+    )}
+
+    {/* 🔹 Company Details */}
+    <div>
+      <h1 className="text-2xl font-semibold text-[#003f20] leading-tight">
+        {company.name || "Company Name"}
+      </h1>
+      <p className="text-sm text-gray-600 leading-snug">
+        {company.address || "Company Address"} <br />
+        <span className="text-gray-500">{company.phone || "Company Phone"}</span>
+      </p>
+    </div>
+  </div>
+) : (
+  <div className="flex items-center gap-2 text-gray-500 border-b pb-4">
+    <div className="h-5 w-5 border-2 border-[#003f20] border-t-transparent rounded-full animate-spin"></div>
+    <p>Loading company info...</p>
+  </div>
+)}
+
 
             <div className="text-right">
               <h2 className="text-3xl font-bold text-[#003f20] tracking-wide">
@@ -312,15 +488,7 @@ async function handleDownloadPDF() {
     className="w-40 border rounded-md p-2 focus:outline-none focus:ring-1 focus:ring-[#005f33]"
   />
 </div>
-<div className="flex justify-between gap-2">
-  <label className="text-gray-600 w-28">Due Date</label>
-  <input
-    type="date"
-    value={form.dueDate}
-    onChange={(e) => updateForm("dueDate", e.target.value)}
-    className="w-40 border rounded-md p-2 focus:outline-none focus:ring-1 focus:ring-[#005f33]"
-  />
-</div>
+
 <div className="flex justify-between gap-2">
   <label className="text-gray-600 w-28">Phone Number</label>
   <input
@@ -339,17 +507,34 @@ async function handleDownloadPDF() {
 
           {/* Bill To / Ship To */}
           <div className="grid grid-cols-2 gap-6 mt-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Bill To
-              </label>
-              <textarea
-                value={form.billTo}
-                onChange={(e) => updateForm("billTo", e.target.value)}
-                placeholder="Client Name, Address, Phone..."
-                className="w-full p-3 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#005f33] resize-none"
-              />
-            </div>
+            <div className="relative">
+  <label className="block text-sm font-medium text-gray-700 mb-1">
+    Bill To
+  </label>
+  <textarea
+    value={form.billTo}
+    onChange={(e) => handleCustomerInput(e.target.value)}
+    placeholder="Client Name, Address, Phone..."
+    className="w-full p-3 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#005f33] resize-none"
+  />
+
+  {/* ✅ Suggestions Dropdown */}
+  {showCustomerSuggestions && customerSuggestions.length > 0 && (
+    <ul className="absolute z-10 bg-white border rounded-md shadow-md mt-1 max-h-40 overflow-y-auto w-full">
+      {customerSuggestions.map((c) => (
+        <li
+          key={c._id}
+          onClick={() => handleSelectCustomer(c)}
+          className="p-2 hover:bg-green-50 cursor-pointer flex justify-between"
+        >
+          <span>{c.name}</span>
+          <span className="text-gray-500 text-sm">{c.phone}</span>
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Ship To (optional)
@@ -372,65 +557,82 @@ async function handleDownloadPDF() {
     <div className="col-span-1 text-right">Amount</div>
   </div>
 
-  <div className="border border-t-0 rounded-b-md p-4 space-y-3 bg-white">
-    {items.map((it) => (
-      <div
-        key={it.id}
-        className="grid grid-cols-12 gap-2 items-center border-b pb-2"
+   <div className="border border-t-0 rounded-b-md p-4 space-y-3 bg-white relative">
+      {items.map((it) => (
+        <div key={it.id} className="grid grid-cols-12 gap-2 items-start border-b pb-2 relative">
+          {/* 🟢 ITEM INPUT WITH SUGGESTIONS */}
+          <div className="col-span-7 relative">
+            <input
+              value={it.description}
+              onChange={(e) => handleDescriptionInput(it.id, e.target.value)}
+              placeholder="Item or service description..."
+              className="w-full p-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-[#005f33]"
+            />
+
+            {/* ✅ Suggestions Dropdown */}
+            {showSuggestions[it.id] && searchSuggestions[it.id]?.length > 0 && (
+              <ul className="absolute z-10 bg-white border rounded-md shadow-md mt-1 max-h-40 overflow-y-auto w-full">
+                {searchSuggestions[it.id].map((product) => (
+                  <li
+                    key={product._id}
+                    onClick={() => handleSelectSuggestion(it.id, product)}
+                    className="p-2 hover:bg-green-50 cursor-pointer flex justify-between"
+                  >
+                    <span>{product.name}</span>
+                    <span className="text-gray-500 text-sm">Rs. {product.purchasePrice}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* 🟢 QUANTITY */}
+          <div className="col-span-2">
+            <input
+              type="number"
+              value={it.qty}
+              onChange={(e) => updateItem(it.id, "qty", e.target.value)}
+              className="w-full p-2 border rounded-md text-center focus:ring-1 focus:ring-[#005f33]"
+            />
+          </div>
+
+          {/* 🟢 RATE */}
+          <div className="col-span-2 flex items-center gap-1">
+            <span className="text-sm text-gray-600">Rs.</span>
+            <input
+              type="number"
+              value={it.rate}
+              onChange={(e) => updateItem(it.id, "rate", e.target.value)}
+              className="w-full p-2 border rounded-md focus:ring-1 focus:ring-[#005f33]"
+            />
+          </div>
+
+          {/* 🟢 AMOUNT & DELETE */}
+          <div className="col-span-1 text-right">
+            <span className="font-medium text-gray-700">
+              Rs.{" "}
+              {Number(it.amount || 0).toLocaleString("en-PK", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+            <button
+              onClick={() => removeItem(it.id)}
+              className="ml-2 text-red-500 hover:text-red-600"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <button
+        onClick={addItem}
+        className="mt-3 inline-flex items-center gap-2 border border-green-500 text-green-700 hover:bg-green-50 px-3 py-2 rounded-md transition"
       >
-        <div className="col-span-7">
-          <input
-            value={it.description}
-            onChange={(e) => updateItem(it.id, "description", e.target.value)}
-            placeholder="Item or service description..."
-            className="w-full p-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-[#005f33]"
-          />
-        </div>
-
-        <div className="col-span-2">
-          <input
-            type="number"
-            value={it.qty}
-            onChange={(e) => updateItem(it.id, "qty", e.target.value)}
-            className="w-full p-2 border rounded-md text-center focus:ring-1 focus:ring-[#005f33]"
-          />
-        </div>
-
-        <div className="col-span-2 flex items-center gap-1">
-          <span className="text-sm text-gray-600">Rs.</span>
-          <input
-            type="number"
-            value={it.rate}
-            onChange={(e) => updateItem(it.id, "rate", e.target.value)}
-            className="w-full p-2 border rounded-md focus:ring-1 focus:ring-[#005f33]"
-          />
-        </div>
-
-        <div className="col-span-1 text-right">
-          <span className="font-medium text-gray-700">
-            Rs.{" "}
-            {Number(it.amount || 0).toLocaleString("en-PK", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </span>
-          <button
-            onClick={() => removeItem(it.id)}
-            className="ml-2 text-red-500 hover:text-red-600"
-          >
-            <Trash2 size={16} />
-          </button>
-        </div>
-      </div>
-    ))}
-
-    <button
-      onClick={addItem}
-      className="mt-3 inline-flex items-center gap-2 border border-green-500 text-green-700 hover:bg-green-50 px-3 py-2 rounded-md transition"
-    >
-      <Plus size={14} /> Add Item
-    </button>
-  </div>
+        <Plus size={14} /> Add Item
+      </button>
+    </div>
 </div>
 
 
@@ -523,14 +725,24 @@ async function handleDownloadPDF() {
       </div>
 
       <div className="flex justify-between font-semibold text-gray-800">
-        <span>Balance Due</span>
-        <span>
-          Rs.{" "}
-          {Number(Math.max(total - Number(amountPaid || 0), 0)).toLocaleString("en-PK", {
-            minimumFractionDigits: 2,
-          })}
-        </span>
-      </div>
+  <span>Balance Due</span>
+  <span>
+    Rs.{" "}
+    {Number(balanceDue).toLocaleString("en-PK", {
+      minimumFractionDigits: 2,
+    })}
+  </span>
+</div>
+<div className="flex justify-between gap-2">
+  <label className="text-gray-600 w-28">Due Date</label>
+  <input
+    type="date"
+    value={form.dueDate}
+    onChange={(e) => updateForm("dueDate", e.target.value)}
+    className="w-40 border rounded-md p-2 focus:outline-none focus:ring-1 focus:ring-[#005f33]"
+  />
+</div>
+
 
       <button
         onClick={handleDownloadPDF}

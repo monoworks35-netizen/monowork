@@ -1,5 +1,7 @@
 import { connectDb } from "@/helpers/db";
 import Invoice from "@/models/Invoice";
+import Inventory from "@/models/Inventory";
+import Due from "@/models/Due";
 
 function sendJSON(status, body) {
   return new Response(JSON.stringify(body), {
@@ -42,43 +44,76 @@ export async function GET(req) {
   }
 }
 
-// --- POST: Create invoice ---
-// --- POST: Create invoice ---
+// ✅ POST: Create invoice + Due with invoice reference
 export async function POST(req) {
   try {
     await connectDb();
     const data = await req.json();
 
-    // Generate random code if missing
-    if (!data.code) {
-      data.code = await generateUniqueCode();
-    }
-
-    // Set invoiceNo same as code
+    // Generate unique code if missing
+    if (!data.code) data.code = await generateUniqueCode();
     data.invoiceNo = data.code;
 
-    // Map service, payment, amount, customer if not already present
-    if (!data.service && data.items) {
-      data.service = data.items.map(i => i.description).join(", ") || "-";
-    }
+    // Auto map some fields
+    if (!data.service && data.items)
+      data.service = data.items.map((i) => i.description).join(", ") || "-";
     if (data.amountPaid !== undefined) data.payment = data.amountPaid;
     if (data.total !== undefined) data.amount = data.total;
     if (!data.customer && data.billTo) data.customer = data.billTo;
 
-    // Save invoice
+    // ✅ 1. Save the invoice
     const invoice = await Invoice.create(data);
-    return sendJSON(201, invoice);
+
+    // ✅ 2. Update product quantities
+    if (data.items && data.items.length > 0) {
+      for (const item of data.items) {
+        const quantity = item.quantity ?? item.qty ?? 0;
+        if (!item.productId) continue;
+        const product = await Inventory.findById(item.productId);
+        if (product) {
+          const newQty = Math.max(product.quantity - quantity, 0);
+          await Inventory.findByIdAndUpdate(product._id, { quantity: newQty });
+        }
+      }
+    }
+
+    // ✅ 3. Create Due if balanceDue > 0 and store invoice reference
+    if (Number(data.balanceDue) > 0) {
+      await Due.create({
+        invoiceId: invoice._id, // ← store invoice reference
+        invoiceCode: invoice.code, // optional, human-friendly
+        name: data.billTo || data.customerData?.name || "Unknown",
+        contact: data.customerData?.contact || data.poNumber || "Not Provided",
+        amount: Number(data.balanceDue).toFixed(2),
+        dueDate:
+          data.dueDate ||
+          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .split("T")[0],
+        status: "Pending",
+        highlight: "none",
+      });
+
+      console.log("✅ Due created successfully with invoice reference!");
+    } else {
+      console.log("⚠️ No due pending, skipping Due creation.");
+    }
+
+    return sendJSON(201, { success: true, invoice });
   } catch (err) {
     console.error("POST error:", err);
-
-    // Handle duplicate key error gracefully
     if (err.code === 11000) {
       return sendJSON(400, { error: "Duplicate key error. Try again." });
     }
-
     return sendJSON(500, { error: err.message });
   }
 }
+
+
+
+
+
+
 
 
 // --- PUT: Update invoice ---

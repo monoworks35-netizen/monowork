@@ -1,70 +1,132 @@
 import { NextResponse } from "next/server";
 import { connectDb } from "@/helpers/db";
-import Customer from "@/models/Customer";
-import Due from "@/models/Due";
-import Inventory from "@/models/Inventory";
+import Invoice from "@/models/Invoice";
 import Records from "@/models/Records";
+import Customer from "@/models/Customer";
+import Inventory from "@/models/Inventory";
+import Due from "@/models/Due"; // 👈 Import Due model
 
-export async function GET() {
+export async function GET(req) {
   try {
     await connectDb();
 
-    // Total Income
-    const incomeRecords = await Records.find({ type: "Income" });
-    const totalIncome = incomeRecords.reduce((sum, r) => sum + r.amount, 0);
+    const { searchParams } = new URL(req.url);
+    let from = searchParams.get("from");
+    let to = searchParams.get("to");
 
-    // Total Expense
-    const expenseRecords = await Records.find({ type: "Expense" });
-    const totalExpense = expenseRecords.reduce((sum, r) => sum + r.amount, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    // Balance
-    const balance = totalIncome - totalExpense;
+    let fromDate = from ? new Date(from) : null;
+    let toDate = to ? new Date(to) : today;
 
-    // Customers
+    if (toDate > today) toDate = today;
+
+    if (fromDate) fromDate.setHours(0, 0, 0, 0);
+    if (toDate) toDate.setHours(23, 59, 59, 999);
+
+    // ---------------------
+    // 🧾 Invoices
+    // ---------------------
+    const invoiceFilter = {};
+    if (fromDate || toDate) invoiceFilter.createdAt = {};
+    if (fromDate) invoiceFilter.createdAt.$gte = fromDate;
+    if (toDate) invoiceFilter.createdAt.$lte = toDate;
+
+    const invoices = await Invoice.find(invoiceFilter);
+
+    const totalIncome = invoices.reduce(
+      (sum, inv) => sum + Number(inv.amountPaid || 0),
+      0
+    );
+
+    const totalPendingDuesFromInvoices = invoices
+      .filter((inv) => inv.status === "Pending")
+      .reduce((sum, inv) => sum + Number(inv.balanceDue || 0), 0);
+
+    // ---------------------
+    // ⚠️ Dues (for frontend pending notifications)
+    // ---------------------
+    const pendingDues = await Due.find({
+      status: "Pending",
+    });
+
+    // Filter only those whose dueDate has passed
+    const overdueDues = pendingDues.filter((due) => {
+      const dueDate = new Date(due.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+      return dueDate < today; // only past dues
+    });
+
+    // ---------------------
+    // 💸 Expenses
+    // ---------------------
+    const expenseFilter = { type: "Expense" };
+    if (fromDate || toDate) expenseFilter.createdAt = {};
+    if (fromDate) expenseFilter.createdAt.$gte = fromDate;
+    if (toDate) expenseFilter.createdAt.$lte = toDate;
+
+    const expenses = await Records.find(expenseFilter);
+    const totalExpense = expenses.reduce(
+      (sum, r) => sum + Number(r.amount || 0),
+      0
+    );
+
+    // ---------------------
+    // 👥 Customers
+    // ---------------------
     const totalCustomers = await Customer.countDocuments();
 
-    // Pending Dues
-    const pendingDues = await Due.find({ status: "Pending" });
-    const totalPendingDues = pendingDues.reduce((sum, d) => sum + Number(d.amount), 0);
+    // ---------------------
+    // 📦 Inventory
+    // ---------------------
+    const inventories = await Inventory.find({});
+    const totalProducts = inventories.length;
+    const totalQuantity = inventories.reduce(
+      (sum, item) => sum + Number(item.quantity || 0),
+      0
+    );
 
-    // Products Info
-    const products = await Inventory.find({});
-    const totalProducts = products.reduce((sum, p) => sum + p.quantity, 0);
-
-    // Graph Data: Monthly Income & Expense
+    // ---------------------
+    // 📊 Graph
+    // ---------------------
     const months = [
       "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
-
     const incomeByMonth = Array(12).fill(0);
     const expenseByMonth = Array(12).fill(0);
 
-    incomeRecords.forEach(r => {
-      const month = new Date(r.date).getMonth();
-      incomeByMonth[month] += r.amount;
+    invoices.forEach((inv) => {
+      const month = new Date(inv.createdAt).getMonth();
+      incomeByMonth[month] += Number(inv.amountPaid || 0);
     });
 
-    expenseRecords.forEach(r => {
-      const month = new Date(r.date).getMonth();
-      expenseByMonth[month] += r.amount;
+    expenses.forEach((exp) => {
+      const month = new Date(exp.createdAt).getMonth();
+      expenseByMonth[month] += Number(exp.amount || 0);
     });
 
+    // ---------------------
+    // ✅ Final Response
+    // ---------------------
     return NextResponse.json({
       totalIncome,
       totalExpense,
-      balance,
+      balance: totalIncome - totalExpense,
       totalCustomers,
-      totalPendingDues,
+      totalPendingDues: totalPendingDuesFromInvoices,
       totalProducts,
-      graph: {
-        months,
-        income: incomeByMonth,
-        expense: expenseByMonth,
-      },
+      totalQuantity,
+      graph: { months, income: incomeByMonth, expense: expenseByMonth },
+      pendingDues: overdueDues, // 👈 Only send overdue pending dues
     });
+
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "Failed to fetch dashboard data" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch dashboard data" },
+      { status: 500 }
+    );
   }
 }

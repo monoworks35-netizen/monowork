@@ -6,10 +6,11 @@ import {
   Users,
   AlertTriangle,
   Receipt,
-  X,
   DollarSign,
   UserCheck,
   LogOut,
+  Settings, // 👈 Added settings icon
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -22,9 +23,8 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
   // 🔹 Logout function
   const handleLogout = async () => {
     try {
-      localStorage.removeItem("token"); // remove token from localStorage
+      localStorage.removeItem("token");
 
-      // Optional: If you also stored cookie token, call API to clear it
       await fetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
@@ -48,6 +48,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
     { name: "Reports", icon: <FileText size={20} />, href: "/reports" },
     { name: "Accounting", icon: <DollarSign size={20} />, href: "/accounting" },
     { name: "Employees", icon: <UserCheck size={20} />, href: "/employ" },
+    { name: "Company Settings", icon: <Settings size={20} />, href: "/settings" }, // 👈 Added this new menu
   ];
 
   return (
@@ -67,7 +68,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
       >
         <div>
           <div className="flex items-center justify-between mb-8">
-            <h1 className="text-2xl font-bold text-green-700">PinenMFB</h1>
+            <h1 className="text-2xl font-bold text-green-700">Monowork</h1>
             <button onClick={toggleSidebar} className="lg:hidden text-gray-600">
               <X size={22} />
             </button>

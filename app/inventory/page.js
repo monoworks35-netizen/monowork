@@ -27,19 +27,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { toast } from "sonner";
 
 export default function InventoryPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
   const [products, setProducts] = useState([]);
-  const [form, setForm] = useState({
-    name: "",
-    category: "",
-    unit: "",
-    purchasePrice: "",
-    quantity: "",
-  });
+  const [form, setForm] = useState({ name: "", category: "", unit: "", purchasePrice: "", quantity: "" });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -48,22 +43,36 @@ export default function InventoryPage() {
   const [editId, setEditId] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
 
-  const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch("/api/inventory");
-      const data = await res.json();
-      setProducts(data);
-    } catch (err) {
-      console.error("Error fetching inventory:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+// 1️⃣ Fetch products
+const fetchProducts = async () => {
+  try {
+    setLoading(true);
+    const res = await fetch("/api/inventory");
+    const data = await res.json();
+    setProducts(data);
+  } catch (err) {
+    console.error("Error fetching inventory:", err);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
+// 2️⃣ Check for zero quantity whenever products change
+useEffect(() => {
+  if (products.length > 0) {
+    products.forEach((product) => {
+      if (product.quantity === 0) {
+        toast.warning(`The quantity of "${product.name}" has reached 0!`);
+      }
+    });
+  }
+}, [products]);
+
+// 3️⃣ Fetch products on component mount
+useEffect(() => {
+  fetchProducts();
+}, []);
+
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });

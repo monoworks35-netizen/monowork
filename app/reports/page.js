@@ -1,21 +1,9 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "../components/Sidebar";
 import MobileHeader from "../components/MobileHeader";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import {
-  Plus,
-  MoreVertical,
-  Trash2,
-  Download,
-  FileText,
-  DollarSign,
-  User,
-  ChevronDown,
-} from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-
+import { MoreVertical } from "lucide-react";
+import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,181 +12,87 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 
-import { toast } from "sonner"; // ✅ shadcn toaster import
-
-export default function ReportsPage() {
+export default function AccountingPageUI() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [reportType, setReportType] = useState("purchase");
-  const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false); // ✅ control dialog state
+  const [customers, setCustomers] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState("Select Customer");
+  const [salesRecords, setSalesRecords] = useState([]);
+  const [pendingDues, setPendingDues] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
-  const [form, setForm] = useState({
-    name: "",
-    invoice: "",
-    date: "",
-    product: "",
-    quantity: "",
-    price: "",
-    contact: "",
-    cnic: "",
-    payment: "Cash",
-  });
-  const toggleSidebar = () => setSidebarOpen((prev) => !prev);
+  const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
-  // 🔹 Fetch Reports
-  const fetchReports = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`/api/reports?type=${reportType}`);
-      const data = await res.json();
-      setReports(data);
-    } catch (err) {
-      toast.error("Failed to fetch reports");
-      console.error("Error fetching reports:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [reportType]);
-
-  // ✅ useEffect now depends safely on fetchReports
+  // Fetch all customers on mount
   useEffect(() => {
-    fetchReports();
-  }, [fetchReports]);
-
-
-
-  // 🔹 Handle Input
-  const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
-
-  // 🔹 Add Report
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch("/api/reports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportType, ...form }),
-      });
-
-      if (res.ok) {
-        toast.success("Report added successfully ✅");
-        setOpenDialog(false); // ✅ Close dialog
-        await fetchReports();
-
-        setForm({
-          name: "",
-          invoice: "",
-          date: "",
-          product: "",
-          quantity: "",
-          price: "",
-          contact: "",
-          cnic: "",
-          payment: "Cash",
-        });
-      } else {
-        toast.error("Failed to add report ❌");
+    const fetchCustomers = async () => {
+      try {
+        const res = await fetch("/api/customers");
+        const data = await res.json();
+        setCustomers(["All", ...data.map(c => c.name)]);
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to load customers!");
       }
-    } catch (err) {
-      toast.error("Error adding report ❌");
-      console.error("Add error:", err);
+    };
+    fetchCustomers();
+  }, []);
+
+  // Fetch sales & dues for selected customer
+  useEffect(() => {
+    if (selectedCustomer === "Select Customer" || selectedCustomer === "All") {
+      setSalesRecords([]);
+      setPendingDues([]);
+      return;
     }
-  };
 
-  // 🔹 Delete Report
-  const handleDelete = async (id) => {
-    try {
-      const res = await fetch("/api/reports", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportType, id }),
-      });
-
-      if (res.ok) {
-        setReports((prev) => prev.filter((r) => r._id !== id));
-        toast.success("Report deleted successfully 🗑️");
-      } else {
-        toast.error("Failed to delete report ❌");
+    const fetchCustomerData = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/customer-data?name=${selectedCustomer}`);
+        const data = await res.json();
+        setSalesRecords(data.sales || []);
+        setPendingDues(data.dues || []);
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to load customer data!");
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      toast.error("Error deleting report ❌");
-      console.error("Delete error:", err);
-    }
-  };
+    };
 
+    fetchCustomerData();
+  }, [selectedCustomer]);
 
-  // 🔹 Download Report
- const handleDownload = (report) => {
-  const doc = new jsPDF();
+  // Filter sales & dues based on date
+ // Filter sales & dues based on date
+const filteredSales = salesRecords.filter(rec => {
+  if (fromDate && rec.date < fromDate) return false;
+  if (toDate && rec.date > toDate) return false;
+  return true;
+});
 
-  // Title
-  doc.setFontSize(18);
-  doc.setTextColor(0, 63, 32);
-  doc.text(
-    `${reportType === "sale" ? "Sale Report" : "Purchase Report"}`,
-    14,
-    20
-  );
+// Pending dues filter based on createdAt (or date) instead of dueDate
+// Pending dues filter based on createdAt
+const filteredDues = pendingDues.filter(rec => {
+  if (!rec.createdAt) return false;
 
-  // Report Details
-  doc.setFontSize(12);
-  doc.setTextColor(60, 60, 60);
-  doc.text(`Name: ${report.name}`, 14, 35);
-  doc.text(`Invoice No: ${report.invoice}`, 14, 43);
-  doc.text(`Date: ${report.date}`, 14, 51);
-  doc.text(`Payment Method: ${report.payment}`, 14, 59);
+  const recordDate = new Date(rec.createdAt);
+  const from = fromDate ? new Date(fromDate) : null;
+  const to = toDate ? new Date(toDate) : null;
 
-  if (reportType === "sale") {
-    doc.text(`CNIC: ${report.cnic || "N/A"}`, 14, 67);
-    doc.text(`Contact: ${report.contact || "N/A"}`, 14, 75);
-  }
+  // Set time to 00:00:00 for accurate comparison ignoring time
+  recordDate.setHours(0,0,0,0);
+  if (from) from.setHours(0,0,0,0);
+  if (to) to.setHours(0,0,0,0);
 
-  // Product Table
-  const startY = reportType === "sale" ? 90 : 80;
-  autoTable(doc, {
-    startY,
-    head: [["Product", "Quantity", "Unit Price (Rs.)", "Total (Rs.)"]],
-    body: [
-      [
-        report.product,
-        report.quantity,
-        `Rs. ${report.price}`,
-        `Rs. ${report.quantity * report.price}`,
-      ],
-    ],
-    styles: { halign: "center" },
-    headStyles: { fillColor: [0, 63, 32] },
-  });
+  if (from && recordDate < from) return false;
+  if (to && recordDate > to) return false;
 
-  const finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : startY + 20;
-  doc.setFontSize(14);
-  doc.setTextColor(0, 63, 32);
-  doc.text(
-    `Grand Total: Rs. ${report.quantity * report.price}`,
-    14,
-    finalY + 15
-  );
-
-  // Footer
-  doc.setFontSize(10);
-  doc.setTextColor(150);
-  doc.text("Generated by Reports Management System", 14, finalY + 25);
-
-  // Save PDF
-  doc.save(`${reportType}-report-${report.invoice}.pdf`);
-};
+  return true;
+});
 
 
   return (
@@ -206,336 +100,87 @@ export default function ReportsPage() {
       <Sidebar isOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
       <div className="flex-1 w-full">
         <MobileHeader toggleSidebar={toggleSidebar} />
-        <div className="p-6 space-y-6">
-          {/* Header */}
+
+        <div className="p-6 space-y-6 h-[100vh] overflow-auto">
           <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-              <h1 className="text-2xl font-bold text-[#003f20]">
-                Reports Management
-              </h1>
-              <p className="text-gray-500">
-                Manage and generate all reports in one place
-              </p>
+              <h1 className="text-2xl font-bold text-[#003f20]">Accounting</h1>
+              <p className="text-gray-500">Sales report & pending dues</p>
             </div>
 
-            {/* Report Type Selector */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Customer Dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 transition">
-                    {reportType === "purchase"
-                      ? "Purchase Report"
-                      : "Sale Report"}
-                    <ChevronDown size={16} className="text-gray-600" />
+                  <button className="bg-white border px-4 py-2 rounded-lg shadow hover:bg-gray-50">
+                    {selectedCustomer} <span className="ml-2">▼</span>
                   </button>
                 </DropdownMenuTrigger>
-
-                <DropdownMenuContent className="w-52 bg-white rounded-xl shadow-md border border-gray-100">
-                  <DropdownMenuLabel className="text-xs text-gray-400">
-                    Select Report Type
-                  </DropdownMenuLabel>
+                <DropdownMenuContent className="w-48">
+                  <DropdownMenuLabel>Select Customer</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {["purchase", "sale"].map((type) => (
-                    <DropdownMenuItem
-                      key={type}
-                      onClick={() => setReportType(type)}
-                      className={`cursor-pointer ${
-                        reportType === type ? "text-[#003f20] font-medium" : ""
-                      }`}
-                    >
-                      {type === "purchase"
-                        ? "Purchase Report"
-                        : "Sale Report"}
+                  {customers.map(cust => (
+                    <DropdownMenuItem key={cust} onClick={() => setSelectedCustomer(cust)}>
+                      {cust}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Add Report Button */}
-              <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-                <DialogTrigger asChild>
-                  <button className="flex items-center gap-2 bg-[#003f20] text-white px-4 py-2 rounded-lg hover:bg-[#005f33] transition">
-                    <Plus size={18} /> Add
-                  </button>
-                </DialogTrigger>
-
-                <DialogContent className="sm:max-w-md rounded-xl">
-                  <DialogHeader>
-                    <DialogTitle>Add New {reportType} Entry</DialogTitle>
-                    <DialogDescription>
-                      Fill out details for the {reportType} report.
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  {/* Add Form */}
-                  <form onSubmit={handleAdd} className="space-y-4 mt-2">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        {reportType === "sale"
-                          ? "Customer Name"
-                          : "Supplier Name"}
-                      </label>
-                      <input
-                        type="text"
-                        name="name"
-                        value={form.name}
-                        onChange={handleChange}
-                        required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003f20]"
-                      />
-                    </div>
-
-                    {reportType === "sale" && (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            CNIC
-                          </label>
-                          <input
-                            type="text"
-                            name="cnic"
-                            value={form.cnic}
-                            onChange={handleChange}
-                            placeholder="35201-XXXXXXX-X"
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Contact Number
-                          </label>
-                          <input
-                            type="text"
-                            name="contact"
-                            value={form.contact}
-                            onChange={handleChange}
-                            placeholder="03XX-XXXXXXX"
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Common Fields */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Invoice No
-                        </label>
-                        <input
-                          type="text"
-                          name="invoice"
-                          value={form.invoice}
-                          onChange={handleChange}
-                          required
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Date
-                        </label>
-                        <input
-                          type="date"
-                          name="date"
-                          value={form.date}
-                          onChange={handleChange}
-                          required
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        Product
-                      </label>
-                      <input
-                        type="text"
-                        name="product"
-                        value={form.product}
-                        onChange={handleChange}
-                        required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Quantity
-                        </label>
-                        <input
-                          type="number"
-                          name="quantity"
-                          value={form.quantity}
-                          onChange={handleChange}
-                          required
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">
-                          Unit Price (Rs.)
-                        </label>
-                        <input
-                          type="number"
-                          name="price"
-                          value={form.price}
-                          onChange={handleChange}
-                          required
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        Payment Method
-                      </label>
-                      <select
-                        name="payment"
-                        value={form.payment}
-                        onChange={handleChange}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      >
-                        <option value="Cash">Cash</option>
-                        <option value="Credit">Credit</option>
-                      </select>
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="w-full bg-[#003f20] text-white py-2 rounded-lg hover:bg-[#005f33] transition"
-                    >
-                      Save
-                    </button>
-                  </form>
-                </DialogContent>
-              </Dialog>
+              {/* Date Filters */}
+              <input
+                type="date"
+                value={fromDate}
+                onChange={e => setFromDate(e.target.value)}
+                className="border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]"
+                placeholder="From Date"
+              />
+              <input
+                type="date"
+                value={toDate}
+                onChange={e => setToDate(e.target.value)}
+                className="border px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]"
+                placeholder="To Date"
+              />
             </div>
           </header>
 
-          {/* Table */}
-          <div className="rounded-2xl overflow-x-auto bg-white shadow-sm">
+          {/* Sales Table */}
+          <div className="rounded-2xl overflow-x-auto scrollbar-hide bg-white shadow mt-4">
+            <h2 className="p-4 text-lg font-semibold text-[#003f20]">Sales</h2>
             <table className="min-w-full border-collapse">
               <thead className="bg-[#003f20] text-white">
                 <tr>
-                  <th className="p-3 text-left text-sm font-semibold">Name</th>
-                  <th className="p-3 text-left text-sm font-semibold">Invoice</th>
-                  <th className="p-3 text-left text-sm font-semibold">Product</th>
-                  <th className="p-3 text-left text-sm font-semibold">Qty</th>
-                  <th className="p-3 text-left text-sm font-semibold">Price</th>
-                  <th className="p-3 text-left text-sm font-semibold">Total</th>
-                  {reportType === "sale" && (
-                    <>
-                      <th className="p-3 text-left text-sm font-semibold">CNIC</th>
-                      <th className="p-3 text-left text-sm font-semibold">Contact</th>
-                    </>
-                  )}
-                  <th className="p-3 text-left text-sm font-semibold">Payment</th>
-                  <th className="p-3 text-center text-sm font-semibold">Actions</th>
+                  <th className="p-3 text-left text-sm font-semibold">Code</th>
+                  <th className="p-3 text-left text-sm font-semibold">Bill To</th>
+                  <th className="p-3 text-left text-sm font-semibold">Date</th>
+                  <th className="p-3 text-left text-sm font-semibold">Total Items</th>
+                  <th className="p-3 text-left text-sm font-semibold">Rate</th>
+                  <th className="p-3 text-left text-sm font-semibold">Total Amount</th>
                 </tr>
               </thead>
-
               <tbody>
-                {loading ? (
-                   <>
-    {[...Array(5)].map((_, i) => (
-      <tr key={i} className="border-b">
-        <td className="p-3">
-          <Skeleton className="h-4 w-32 rounded-md" />
-        </td>
-        <td className="p-3">
-          <Skeleton className="h-4 w-24 rounded-md" />
-        </td>
-        <td className="p-3">
-          <Skeleton className="h-4 w-28 rounded-md" />
-        </td>
-        <td className="p-3">
-          <Skeleton className="h-4 w-16 rounded-md" />
-        </td>
-        <td className="p-3">
-          <Skeleton className="h-4 w-20 rounded-md" />
-        </td>
-        <td className="p-3">
-          <Skeleton className="h-4 w-24 rounded-md" />
-        </td>
-        {reportType === "sale" && (
-          <>
-            <td className="p-3">
-              <Skeleton className="h-4 w-24 rounded-md" />
-            </td>
-            <td className="p-3">
-              <Skeleton className="h-4 w-28 rounded-md" />
-            </td>
-          </>
-        )}
-        <td className="p-3">
-          <Skeleton className="h-4 w-20 rounded-md" />
-        </td>
-        <td className="p-3 text-center">
-          <Skeleton className="h-6 w-6 rounded-full mx-auto" />
-        </td>
-      </tr>
-    ))}
-  </>
-                ) : reports.length === 0 ? (
+                {selectedCustomer === "Select Customer" ? (
                   <tr>
-                    <td colSpan="10" className="text-center p-6 text-gray-400">
-                      No reports found.
+                    <td colSpan={6} className="p-4 text-center text-gray-500">
+                      Please select a customer to view data.
                     </td>
                   </tr>
+                ) : loading ? (
+                  <tr><td colSpan={6} className="p-4 text-center">Loading...</td></tr>
+                ) : filteredSales.length === 0 ? (
+                  <tr><td colSpan={6} className="p-4 text-center text-gray-500">No sales found.</td></tr>
                 ) : (
-                  reports.map((r) => (
-                    <tr
-                      key={r._id}
-                      className="border-b hover:bg-gray-50 transition"
-                    >
-                      <td className="p-3 text-sm text-gray-800 font-medium">
-                        {r.name}
+                  filteredSales.map((rec, idx) => (
+                    <tr key={idx} className="border-b hover:bg-gray-50 transition">
+                      <td className="p-3 text-sm text-gray-700">{rec.code}</td>
+                      <td className="p-3 text-sm text-gray-700">{rec.billTo}</td>
+                      <td className="p-3 text-sm text-gray-500">{rec.date}</td>
+                      <td className="p-3 text-sm text-gray-700">{rec.items.length}</td>
+                      <td className="p-3 text-sm text-gray-700">
+                        Rs. {rec.items.length > 0 ? (rec.items.reduce((sum, i) => sum + i.rate, 0) / rec.items.length).toFixed(2) : 0}
                       </td>
-                      <td className="p-3 text-sm text-gray-700">{r.invoice}</td>
-                      <td className="p-3 text-sm text-gray-700">{r.product}</td>
-                      <td className="p-3 text-sm text-gray-700">{r.quantity}</td>
-                      <td className="p-3 text-sm text-gray-700">Rs. {r.price}</td>
-                      <td className="p-3 text-sm text-[#003f20] font-semibold">
-                        Rs. {r.price * r.quantity}
-                      </td>
-                      {reportType === "sale" && (
-                        <>
-                          <td className="p-3 text-sm text-gray-700">{r.cnic}</td>
-                          <td className="p-3 text-sm text-gray-700">{r.contact}</td>
-                        </>
-                      )}
-                      <td className="p-3 text-sm text-gray-700">{r.payment}</td>
-                      <td className="p-3 text-center">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="p-2 rounded-full hover:bg-gray-100 transition">
-                              <MoreVertical size={18} className="text-gray-700" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent className="w-44 bg-white shadow-lg rounded-xl border border-gray-100">
-                            <DropdownMenuLabel className="text-xs text-gray-400">
-                              Actions
-                            </DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => handleDownload(r)}
-                              className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:text-[#005f33]"
-                            >
-                              <Download size={15} /> Download
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleDelete(r._id)}
-                              className="flex items-center gap-2 text-sm text-red-600 cursor-pointer hover:text-red-700"
-                            >
-                              <Trash2 size={15} /> Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </td>
+                      <td className="p-3 text-sm font-semibold">Rs. {rec.total}</td>
                     </tr>
                   ))
                 )}
@@ -543,27 +188,46 @@ export default function ReportsPage() {
             </table>
           </div>
 
-          {/* Summary */}
-          <div className="mt-4 bg-white shadow-sm rounded-2xl p-4 flex flex-wrap gap-6 justify-between">
-            <div className="flex items-center gap-2 text-gray-700">
-              <FileText size={18} className="text-[#003f20]" />
-              <span>Total Entries: {reports.length}</span>
-            </div>
-            <div className="flex items-center gap-2 text-gray-700">
-              <DollarSign size={18} className="text-[#003f20]" />
-              <span>
-                Total Value: Rs.{" "}
-                {reports
-                  .reduce((acc, r) => acc + r.price * r.quantity, 0)
-                  .toLocaleString()}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-gray-700">
-              <User size={18} className="text-[#003f20]" />
-              <span>
-                Unique Names: {new Set(reports.map((r) => r.name)).size}
-              </span>
-            </div>
+          {/* Pending Dues Table */}
+          <div className="rounded-2xl overflow-x-auto scrollbar-hide bg-white shadow mt-8">
+            <h2 className="p-4 text-lg font-semibold text-[#003f20]">Pending Dues</h2>
+            <table className="min-w-full border-collapse">
+              <thead className="bg-red-900 text-white">
+                <tr>
+                  <th className="p-3 text-left text-sm font-semibold">Customer</th>
+                  <th className="p-3 text-left text-sm font-semibold">Contact</th>
+                  <th className="p-3 text-left text-sm font-semibold">Pending Amount</th>
+                  <th className="p-3 text-left text-sm font-semibold">Due Date</th>
+                  <th className="p-3 text-left text-sm font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+  {selectedCustomer === "Select Customer" ? (
+    <tr>
+      <td colSpan={5} className="p-4 text-center text-gray-500">
+        Please select a customer to view data.
+      </td>
+    </tr>
+  ) : loading ? (
+    <tr><td colSpan={5} className="p-4 text-center">Loading...</td></tr>
+  ) : filteredDues.length === 0 ? (
+    <tr><td colSpan={5} className="p-4 text-center text-gray-500">No pending dues.</td></tr>
+  ) : (
+    filteredDues.map((rec, idx) => (
+      <tr key={idx} className="border-b hover:bg-red-50 transition">
+        <td className="p-3 text-sm text-gray-700">{rec.name}</td>
+        <td className="p-3 text-sm text-gray-700">{rec.contact}</td>
+        <td className="p-3 text-sm font-semibold">Rs. {rec.amount}</td>
+        <td className="p-3 text-sm text-gray-500">
+  {new Date(rec.createdAt).toLocaleDateString("en-GB")}
+</td>
+        <td className="p-3 text-sm font-medium text-red-600">{rec.status}</td>
+      </tr>
+    ))
+  )}
+</tbody>
+
+            </table>
           </div>
         </div>
       </div>

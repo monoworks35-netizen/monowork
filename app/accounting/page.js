@@ -25,7 +25,7 @@ import {
 function SkeletonRow() {
   return (
     <tr className="animate-pulse border-b">
-      {[...Array(9)].map((_, i) => (
+      {[...Array(8)].map((_, i) => (
         <td key={i} className="p-3">
           <div className="h-4 bg-gray-200 rounded w-3/4"></div>
         </td>
@@ -34,52 +34,52 @@ function SkeletonRow() {
   );
 }
 
-export default function AccountingPage() {
+export default function ExpensesPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [records, setRecords] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
-  // Fetch accounting records
+  // Fetch expenses
   useEffect(() => {
-    const fetchRecords = async () => {
+    const fetchExpenses = async () => {
       try {
         const res = await fetch("/api/accounting");
         const data = await res.json();
-        setRecords(data);
+        // Only keep Expense type
+        setExpenses(data.filter(r => r.type === "Expense"));
       } catch (err) {
         console.error(err);
-        toast.error("Failed to load records!");
+        toast.error("Failed to load expenses!");
       } finally {
         setLoading(false);
       }
     };
-    fetchRecords();
+    fetchExpenses();
   }, []);
 
-  // Add new record
-  const handleAddRecord = async (e) => {
+  // Add new expense
+  const handleAddExpense = async (e) => {
     e.preventDefault();
     const form = e.target.form;
     const description = form[0].value;
-    const type = form[1].value;
-    const amount = form[2].value;
-    const paymentMethod = form[3].value;
-    const source = form[4].value;
-    const category = form[5].value;
-    const notes = form[6].value;
+    const amount = form[1].value;
+    const paymentMethod = form[2].value;
+    const source = form[3].value;
+    const category = form[4].value;
+    const notes = form[5].value;
 
-    if (!description || !type || !amount || !paymentMethod || !source || !category) {
+    if (!description || !amount || !paymentMethod || !source || !category) {
       toast.error("Please fill all required fields!");
       return;
     }
 
-    const newRecord = {
+    const newExpense = {
       description,
-      type,
+      type: "Expense",
       amount,
       paymentMethod,
       source,
@@ -92,26 +92,28 @@ export default function AccountingPage() {
       const res = await fetch("/api/accounting", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newRecord),
+        body: JSON.stringify(newExpense),
       });
 
       if (res.ok) {
-        toast.success("Record added successfully!");
+        toast.success("Expense added successfully!");
         setIsDialogOpen(false);
-        const updated = await fetch("/api/accounting").then(r => r.json());
-        setRecords(updated);
+        const updated = await fetch("/api/accounting")
+          .then(r => r.json())
+          .then(data => data.filter(r => r.type === "Expense"));
+        setExpenses(updated);
       } else {
-        toast.error("Failed to add record!");
+        toast.error("Failed to add expense!");
       }
     } catch (err) {
       console.error(err);
-      toast.error("Error adding record!");
+      toast.error("Error adding expense!");
     }
   };
 
-  // Delete record
-  const deleteRecord = async (id) => {
-    if (!confirm("Are you sure you want to delete this record?")) return;
+  // Delete expense
+  const deleteExpense = async (id) => {
+    if (!confirm("Are you sure you want to delete this expense?")) return;
     try {
       const res = await fetch("/api/accounting", {
         method: "DELETE",
@@ -119,27 +121,21 @@ export default function AccountingPage() {
         body: JSON.stringify({ id }),
       });
       if (res.ok) {
-        toast.success("Record deleted!");
-        const updated = await fetch("/api/accounting").then(r => r.json());
-        setRecords(updated);
+        toast.success("Expense deleted!");
+        setExpenses(prev => prev.filter(e => e._id !== id));
       } else {
-        toast.error("Failed to delete record!");
+        toast.error("Failed to delete expense!");
       }
     } catch (err) {
       console.error(err);
-      toast.error("Error deleting record!");
+      toast.error("Error deleting expense!");
     }
   };
 
-  // Filtered records
-  const filteredRecords = records.filter(rec =>
+  // Filtered expenses by description
+  const filteredExpenses = expenses.filter(rec =>
     rec.description.toLowerCase().includes(search.toLowerCase())
   );
-
-  // Totals
-  const totalIncome = records.filter(r => r.type === "Income").reduce((a, b) => a + Number(b.amount), 0);
-  const totalExpense = records.filter(r => r.type === "Expense").reduce((a, b) => a + Number(b.amount), 0);
-  const balance = totalIncome - totalExpense;
 
   return (
     <main className="flex bg-gray-100 min-h-screen">
@@ -151,8 +147,8 @@ export default function AccountingPage() {
           {/* Header */}
           <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-              <h1 className="text-2xl font-bold text-[#003f20]">Accounting</h1>
-              <p className="text-gray-500">Manage income, expenses & payments</p>
+              <h1 className="text-2xl font-bold text-[#003f20]">Expenses</h1>
+              <p className="text-gray-500">Manage all your expenses</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -168,24 +164,19 @@ export default function AccountingPage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               </div>
 
-              {/* Add Record */}
+              {/* Add Expense */}
               <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                 <DialogTrigger asChild>
                   <button className="flex items-center gap-2 bg-[#003f20] text-white px-4 py-2 rounded-lg hover:bg-[#005f33] transition">
-                    <Plus size={18} /> Add Record
+                    <Plus size={18} /> Add Expense
                   </button>
                 </DialogTrigger>
                 <DialogContent className="max-w-md rounded-2xl">
                   <DialogHeader>
-                    <DialogTitle className="text-[#003f20] text-lg font-semibold">Add New Record</DialogTitle>
+                    <DialogTitle className="text-[#003f20] text-lg font-semibold">Add New Expense</DialogTitle>
                   </DialogHeader>
                   <form className="space-y-4 mt-3">
                     <input type="text" placeholder="Description" className="w-full mt-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]" />
-                    <select className="w-full mt-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]">
-                      <option value="">Select Type</option>
-                      <option value="Income">Income</option>
-                      <option value="Expense">Expense</option>
-                    </select>
                     <input type="number" placeholder="Amount" className="w-full mt-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]" />
                     <select className="w-full mt-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]">
                       <option value="">Select Payment Method</option>
@@ -193,7 +184,7 @@ export default function AccountingPage() {
                       <option value="Bank">Bank</option>
                       <option value="Online">Online</option>
                     </select>
-                    <input type="text" placeholder="Received From / Paid To" className="w-full mt-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]" />
+                    <input type="text" placeholder="Paid To" className="w-full mt-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]" />
                     <select className="w-full mt-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]">
                       <option value="">Select Category</option>
                       <option value="Office">Office</option>
@@ -203,28 +194,12 @@ export default function AccountingPage() {
                       <option value="Other">Other</option>
                     </select>
                     <textarea placeholder="Notes" className="w-full mt-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003f20]"></textarea>
-                    <button type="button" onClick={handleAddRecord} className="w-full bg-[#003f20] text-white py-2 rounded-lg hover:bg-[#005f33] transition">Save Record</button>
+                    <button type="button" onClick={handleAddExpense} className="w-full bg-[#003f20] text-white py-2 rounded-lg hover:bg-[#005f33] transition">Save Expense</button>
                   </form>
                 </DialogContent>
               </Dialog>
             </div>
           </header>
-
-          {/* Summary */}
-          <div className="flex gap-6 mt-4">
-            <div className="bg-white p-4 rounded-2xl shadow w-1/3 text-center">
-              <h2 className="text-gray-500">Total Income</h2>
-              <p className="text-green-600 text-xl font-bold">Rs. {totalIncome}</p>
-            </div>
-            <div className="bg-white p-4 rounded-2xl shadow w-1/3 text-center">
-              <h2 className="text-gray-500">Total Expense</h2>
-              <p className="text-red-600 text-xl font-bold">Rs. {totalExpense}</p>
-            </div>
-            <div className="bg-white p-4 rounded-2xl shadow w-1/3 text-center">
-              <h2 className="text-gray-500">Balance</h2>
-              <p className={`text-xl font-bold ${balance >= 0 ? "text-green-600" : "text-red-600"}`}>Rs. {balance}</p>
-            </div>
-          </div>
 
           {/* Table */}
           <div className="rounded-2xl overflow-x-auto scrollbar-hide bg-white shadow-sm mt-4">
@@ -232,10 +207,9 @@ export default function AccountingPage() {
               <thead className="bg-[#003f20] text-white">
                 <tr>
                   <th className="p-3 text-left text-sm font-semibold">Description</th>
-                  <th className="p-3 text-left text-sm font-semibold">Type</th>
                   <th className="p-3 text-left text-sm font-semibold">Amount</th>
                   <th className="p-3 text-left text-sm font-semibold">Payment Method</th>
-                  <th className="p-3 text-left text-sm font-semibold">Received From / Paid To</th>
+                  <th className="p-3 text-left text-sm font-semibold">Paid To</th>
                   <th className="p-3 text-left text-sm font-semibold">Category</th>
                   <th className="p-3 text-left text-sm font-semibold">Notes</th>
                   <th className="p-3 text-left text-sm font-semibold">Date</th>
@@ -245,15 +219,14 @@ export default function AccountingPage() {
               <tbody>
                 {loading
                   ? [...Array(6)].map((_, i) => <SkeletonRow key={i} />)
-                  : filteredRecords.length === 0
-                  ? <tr><td colSpan={9} className="p-4 text-center text-gray-500">No records found.</td></tr>
-                  : filteredRecords.map(rec => (
+                  : filteredExpenses.length === 0
+                  ? <tr><td colSpan={8} className="p-4 text-center text-gray-500">No expenses found.</td></tr>
+                  : filteredExpenses.map(rec => (
                       <tr key={rec._id} className="border-b hover:bg-gray-50 transition">
                         <td className="p-3 text-sm text-gray-700">{rec.description}</td>
-                        <td className={`p-3 text-sm font-medium ${rec.type === "Income" ? "text-green-600" : "text-red-600"}`}>{rec.type}</td>
                         <td className="p-3 text-sm font-semibold">Rs. {rec.amount}</td>
                         <td className="p-3 text-sm text-gray-700">{rec.paymentMethod}</td>
-                        <td className="p-3 text-sm text-gray-700">{rec.receivedFrom}</td>
+                        <td className="p-3 text-sm text-gray-700">{rec.source}</td>
                         <td className="p-3 text-sm text-gray-700">{rec.category}</td>
                         <td className="p-3 text-sm text-gray-700">{rec.notes}</td>
                         <td className="p-3 text-sm text-gray-500">{new Date(rec.date).toLocaleDateString()}</td>
@@ -268,7 +241,7 @@ export default function AccountingPage() {
                               <DropdownMenuLabel className="text-xs text-gray-400">Actions</DropdownMenuLabel>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                onClick={() => deleteRecord(rec._id)}
+                                onClick={() => deleteExpense(rec._id)}
                                 className="flex items-center gap-2 text-sm text-red-600 cursor-pointer hover:text-red-700"
                               >
                                 <Trash2 size={15} /> Delete
