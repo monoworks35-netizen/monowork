@@ -5,37 +5,59 @@ import cloudinary from "@/helpers/cloudinary";
 
 export async function GET() {
   await connectDb();
-  const company = await Company.findOne();
-  return NextResponse.json(company || {});
+
+  try {
+    const company = await Company.findOne();
+    return NextResponse.json(company || {});
+  } catch (error) {
+    console.error("Error fetching company:", error);
+    return NextResponse.json({ success: false, error: "Failed to fetch company details" }, { status: 500 });
+  }
 }
 
 export async function POST(req) {
   await connectDb();
-  const data = await req.json();
 
-  // 🔹 Check if there's a base64 logo string
-  let logoUrl = data.logo;
+  try {
+    const data = await req.json();
 
-  if (data.logo && data.logo.startsWith("data:image")) {
-    try {
-      const uploadResponse = await cloudinary.uploader.upload(data.logo, {
-        folder: "company_logos",
-      });
-      logoUrl = uploadResponse.secure_url; // ✅ Cloudinary URL
-    } catch (err) {
-      console.error("Cloudinary upload failed:", err);
-      return NextResponse.json({ success: false, error: "Image upload failed" }, { status: 500 });
+    // 🔹 Default logo (if existing)
+    let logoUrl = data.logo;
+
+    // 🔹 Upload new logo if it's base64
+    if (data.logo && data.logo.startsWith("data:image")) {
+      try {
+        const uploadResponse = await cloudinary.uploader.upload(data.logo, {
+          folder: "company_logos",
+        });
+        logoUrl = uploadResponse.secure_url;
+      } catch (err) {
+        console.error("Cloudinary upload failed:", err);
+        return NextResponse.json({ success: false, error: "Image upload failed" }, { status: 500 });
+      }
     }
-  }
 
-  // 🔹 Save or update company
-  let company = await Company.findOne();
-  if (company) {
-    company.set({ ...data, logo: logoUrl });
-    await company.save();
-  } else {
-    company = await Company.create({ ...data, logo: logoUrl });
-  }
+    // 🔹 Prepare data (including terms)
+    const companyData = {
+      name: data.name || "",
+      address: data.address || "",
+      phone: data.phone || "",
+      logo: logoUrl || "",
+      terms: data.terms || "",
+    };
 
-  return NextResponse.json({ success: true, company });
+    // 🔹 Save or update
+    let company = await Company.findOne();
+    if (company) {
+      company.set(companyData);
+      await company.save();
+    } else {
+      company = await Company.create(companyData);
+    }
+
+    return NextResponse.json({ success: true, company });
+  } catch (error) {
+    console.error("Error saving company:", error);
+    return NextResponse.json({ success: false, error: "Failed to save company details" }, { status: 500 });
+  }
 }

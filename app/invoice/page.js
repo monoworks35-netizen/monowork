@@ -251,62 +251,79 @@ async function handleDownloadPDF() {
     const darkGray = [50, 50, 50];
     const lightGray = [230, 230, 230];
     const green = [0, 100, 0];
+    const pageWidth = doc.internal.pageSize.getWidth();
     const formatNum = (num) =>
       `Rs. ${Number(num || 0).toLocaleString("en-PK", { minimumFractionDigits: 2 })}`;
 
-    const pageWidth = doc.internal.pageSize.getWidth();
-
-    // ===== HEADER =====
     let y = 40;
-    if (company.logo) {
-      try {
+
+    // ===== COMPANY LOGO & INFO (Left Side) =====
+    try {
+      if (company.logo) {
         const imgBlob = await fetch(company.logo).then((r) => r.blob());
         const imgBase64 = await new Promise((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result);
           reader.readAsDataURL(imgBlob);
         });
-        doc.addImage(imgBase64, "JPEG", 50, y, 70, 70);
-      } catch (e) {
+
+        const imgX = 50;
+        const imgY = y;
+        const imgSize = 50;
+        doc.addImage(imgBase64, "JPEG", imgX, imgY, imgSize, imgSize);
+
+        // Text beside logo
+        const textX = imgX + imgSize + 15;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.setTextColor(...green);
+        doc.text(company.name || "Company Name", textX, imgY + 15);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(...darkGray);
+        if (company.address)
+          doc.text(company.address, textX, imgY + 30);
+        if (company.phone)
+          doc.text(company.phone, textX, imgY + 45);
+      } else {
         doc.setFontSize(18);
         doc.setTextColor(...green);
         doc.text(company.name || "Company Name", 50, y + 30);
       }
+    } catch (e) {
+      doc.setFontSize(18);
+      doc.setTextColor(...green);
+      doc.text(company.name || "Company Name", 50, y + 30);
     }
 
-    doc.setFontSize(11);
-    doc.setTextColor(...darkGray);
-    doc.text(company.name || "-", pageWidth - 200, y + 10);
-    doc.text(company.address || "-", pageWidth - 200, y + 25);
-    doc.text(company.phone || "-", pageWidth - 200, y + 40);
-
-    // line separator
+    // Line separator
     doc.setDrawColor(...lightGray);
-    doc.line(50, 130, pageWidth - 50, 130);
+    doc.line(50, 110, pageWidth - 50, 110);
 
     // ===== INVOICE TITLE =====
     doc.setFontSize(22);
     doc.setTextColor(...green);
-    doc.text("INVOICE", 50, 160);
+    doc.text("INVOICE", 50, 150);
 
     doc.setFontSize(11);
     doc.setTextColor(...gray);
-    doc.text(`Code: ${invoiceCode}`, 50, 178);
+    doc.text(`Code: ${invoiceCode}`, 50, 168);
 
     // ===== BILL TO & SHIP TO =====
     doc.setFontSize(10);
     doc.setTextColor(...gray);
-    doc.text("Bill To:", 50, 210);
+    doc.text("Bill To:", 50, 200);
     doc.setTextColor(...darkGray);
-    doc.text(doc.splitTextToSize(form.billTo || "-", 200), 50, 225);
+    doc.text(doc.splitTextToSize(form.billTo || "-", 200), 50, 215);
 
     doc.setTextColor(...gray);
-    doc.text("Ship To:", 300, 210);
+    doc.text("Ship To:", 300, 200);
     doc.setTextColor(...darkGray);
-    doc.text(doc.splitTextToSize(form.shipTo || "-", 200), 300, 225);
+    doc.text(doc.splitTextToSize(form.shipTo || "-", 200), 300, 215);
 
-    // ===== DETAILS (Right side) =====
-    let detailY = 210;
+    // ===== DETAILS (Right Side) =====
+    let detailY = 200;
     const rightX = pageWidth - 200;
     const details = [
       ["Date:", form.date],
@@ -355,7 +372,6 @@ async function handleDownloadPDF() {
 
     // ===== SUMMARY =====
     const finalY = doc.lastAutoTable.finalY + 30;
-    doc.setFontSize(11);
     const rows = [
       ["Subtotal:", formatNum(subtotal)],
       [`Tax (${taxPercent}%):`, formatNum(taxAmount)],
@@ -367,20 +383,14 @@ async function handleDownloadPDF() {
     ];
 
     rows.forEach(([label, val], i) => {
-  const y = finalY + i * 18;
+      const y = finalY + i * 18;
+      doc.setTextColor(...gray);
+      doc.text(label, pageWidth - 220, y);
+      doc.setTextColor(...(i >= 4 ? green : darkGray));
+      doc.text(val, pageWidth - 60, y, { align: "right" });
+    });
 
-  // Left text (labels)
-  doc.setTextColor(...gray);
-  doc.text(label, pageWidth - 220, y);
-
-  // Right text (values)
-  const color = i >= 4 ? green : darkGray; // choose color
-  doc.setTextColor(color[0], color[1], color[2]); // ✅ use RGB directly
-  doc.text(val, pageWidth - 60, y, { align: "right" });
-});
-
-
-    // ===== NOTES =====
+    // ===== NOTES & TERMS =====
     let noteY = finalY + rows.length * 18 + 30;
     doc.setDrawColor(...lightGray);
     doc.line(50, noteY - 10, pageWidth - 50, noteY - 10);
@@ -410,6 +420,19 @@ async function handleDownloadPDF() {
     toast.error("❌ Error generating invoice", { id: processingToast });
   }
 }
+
+
+
+
+useEffect(() => {
+  if (!loading && company) {
+    setForm((p) => ({
+      ...p,
+      terms: company.terms || "",
+    }));
+  }
+}, [company])
+
 
 
 

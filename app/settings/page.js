@@ -96,7 +96,7 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                {/* Name */}
+                {/* Company Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Company Name
@@ -132,8 +132,24 @@ export default function SettingsPage() {
                   />
                 </div>
 
+                {/* Terms & Conditions */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Terms & Conditions
+                  </label>
+                  <textarea
+                    name="terms"
+                    value={company.terms || ""}
+                    onChange={handleChange}
+                    rows={4}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-[#003f20] focus:outline-none"
+                    placeholder="Enter terms and conditions for invoices..."
+                  ></textarea>
+                </div>
+
+                {/* Save Button */}
                 <Button type="submit" className="bg-[#003f20] text-white w-full">
-                  {addloading ? 'Saving...' : 'Save Changes'}
+                  {addloading ? "Saving..." : "Save Changes"}
                 </Button>
               </form>
             </div>
